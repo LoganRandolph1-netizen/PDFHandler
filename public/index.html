@@ -231,28 +231,18 @@
       position: relative;
     }
 
-    #answer-box.streaming {
-      border-color: var(--accent);
-    }
-
     #answer-box .placeholder {
       color: var(--text-muted);
       font-style: italic;
     }
 
-    .cursor {
-      display: inline-block;
-      width: 2px;
-      height: 1em;
-      background: var(--accent);
-      margin-left: 2px;
-      vertical-align: middle;
-      animation: blink 0.9s step-end infinite;
+    .result-block {
+      border-left: 3px solid var(--accent);
+      padding-left: 14px;
+      margin-bottom: 16px;
     }
 
-    @keyframes blink {
-      50% { opacity: 0; }
-    }
+    .result-block:last-child { margin-bottom: 0; }
 
     /* ── History ── */
     #history-section {
@@ -477,15 +467,8 @@
 
       errorMsg.textContent = '';
       askBtn.disabled = true;
+      askBtn.innerHTML = '<span class="spinner"></span>Searching…';
       resetAnswer();
-
-      answerBox.classList.add('streaming');
-      answerBox.textContent = '';
-      const cursorEl = document.createElement('span');
-      cursorEl.className = 'cursor';
-      answerBox.appendChild(cursorEl);
-
-      let fullAnswer = '';
 
       try {
         const res = await fetch('/api/ask', {
@@ -494,52 +477,30 @@
           body: JSON.stringify({ sessionId, question }),
         });
 
+        const data = await res.json();
+
         if (!res.ok) {
-          const data = await res.json();
           showError(data.error || 'Request failed.');
           return;
         }
 
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
+        const segments = data.answer.split('\n\n---\n\n').map(s => s.trim()).filter(Boolean);
+        answerBox.innerHTML = '';
+        segments.forEach(seg => {
+          const block = document.createElement('div');
+          block.className = 'result-block';
+          block.textContent = seg;
+          answerBox.appendChild(block);
+        });
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop();
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const raw = line.slice(6).trim();
-            if (raw === '[DONE]') break;
-            try {
-              const parsed = JSON.parse(raw);
-              if (parsed.error) { showError(parsed.error); return; }
-              if (parsed.text) {
-                fullAnswer += parsed.text;
-                answerBox.textContent = fullAnswer;
-                answerBox.appendChild(cursorEl);
-              }
-            } catch {}
-          }
-        }
-
-        cursorEl.remove();
-        answerBox.classList.remove('streaming');
-
-        if (fullAnswer) {
-          addToHistory(question, fullAnswer);
-          questionInput.value = '';
-          questionInput.style.height = 'auto';
-        }
+        addToHistory(question, data.answer);
+        questionInput.value = '';
+        questionInput.style.height = 'auto';
       } catch (err) {
         showError('Connection error — please try again.');
       } finally {
         askBtn.disabled = false;
+        askBtn.textContent = 'Ask';
         questionInput.focus();
       }
     }
